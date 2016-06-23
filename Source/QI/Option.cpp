@@ -39,8 +39,9 @@ void OptionList::add(OptionBase *o) {
     m_options.push_front(o);
 }
 
-void OptionList::parse(int argc, char *const *argv, std::vector<std::string> &nonopts) {
+std::vector<std::string> OptionList::parse(int argc, char *const *argv, const int expectednonopts) {
     int optind = 1;
+    std::vector<std::string> nonopts;
     while (optind < argc) {
         std::string thisopt(argv[optind]);
         auto it = m_options.end();
@@ -51,7 +52,7 @@ void OptionList::parse(int argc, char *const *argv, std::vector<std::string> &no
                 thisopt = argv[optind++];
                 nonopts.push_back(thisopt);
             }
-            return;
+            return nonopts;
         } else if (thisopt[0] != '-') { // Non-option
             nonopts.push_back(thisopt);
         } else if (thisopt[1] == '-') { // Long option
@@ -92,6 +93,10 @@ void OptionList::parse(int argc, char *const *argv, std::vector<std::string> &no
         }
         optind++;
     }
+    if ((expectednonopts > -1) && (nonopts.size() != expectednonopts)) {
+        QI_EXCEPTION("Incorrect number of non-options. Expected " + std::to_string(expectednonopts) + ", found " + std::to_string(nonopts.size()));
+    }
+    return nonopts;
 }
 
 void OptionList::print(std::ostream &os) const {

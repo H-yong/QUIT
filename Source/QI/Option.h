@@ -55,7 +55,7 @@ protected:
     TList m_options;
 public:
     void add(OptionBase *o);
-    void parse(int argc, char *const *argv, std::vector<std::string> &nonopts);
+    std::vector<std::string> parse(int argc, char *const *argv, const int nonoptcount = -1);
     void print(std::ostream & os) const;
 };
 std::ostream &operator<< (std::ostream &os, const OptionList &l);
