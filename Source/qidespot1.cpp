@@ -251,12 +251,7 @@ QI::Help help("Usage is: qidespot1 [options] spgr_input");
 int main(int argc, char **argv) {
     Eigen::initParallel();
 
-    std::vector<std::string> nonopts;
-    QI::DefaultOptions().parse(argc, argv, nonopts);
-    if (nonopts.size() != 1) {
-        cout << "Incorrect number of arguments." << endl;
-        help.setValue();
-    }
+    std::vector<std::string> nonopts = QI::DefaultOptions().parse(argc, argv, 1);
 
     const std::string &inputFilename = nonopts.front();
     if (*verbose) cout << "Opening SPGR file: " << inputFilename << endl;
