@@ -235,7 +235,7 @@ QI::Option<std::string> outPrefix("", 'o', "out","Add a outPrefix to output file
 QI::ImageOption<QI::VolumeF> mask('m', "mask", "Mask input with specified file");
 QI::ImageOption<QI::VolumeF> B1('b', "B1", "B1 Map file (ratio)");
 QI::EnumOption algorithm("lwbnb",'l','a',"algo","Choose algorithm (l/w/n/b)");
-QI::Switch prompt('n',"no-prompt","Suppress input prompts");
+QI::Switch suppress('n',"no-prompt","Suppress input prompts");
 QI::Switch verbose('v',"verbose","Print more information");
 QI::Help help("Usage is: qidespot1 [options] spgr_input");
 //******************************************************************************
@@ -248,7 +248,7 @@ int main(int argc, char **argv) {
     const std::string &inputFilename = nonopts.front();
     if (*verbose) cout << "Opening SPGR file: " << inputFilename << endl;
     auto data = QI::ReadVectorImage<float>(inputFilename);
-    shared_ptr<QI::SPGRSimple> spgrSequence = make_shared<QI::SPGRSimple>(cin, *prompt);
+    shared_ptr<QI::SPGRSimple> spgrSequence = make_shared<QI::SPGRSimple>(cin, !(*suppress));
     if (*verbose) cout << *spgrSequence;
     shared_ptr<D1Algo> algo;
     switch (*algorithm) {
