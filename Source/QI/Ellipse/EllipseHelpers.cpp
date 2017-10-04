@@ -15,9 +15,10 @@ namespace QI {
 
 // Helper Functions
 void SemiaxesToHoff(const double A, const double B, const double c,
-                    double &a, double &b) {
+                    double &G, double &a, double &b) {
     b = (-c*A + sqrt(c*c*A*A - (c*c + B*B)*(A*A - B*B)))/(c*c + B*B);
     a = B / (b*B + c*sqrt(1-b*b));
+    G = c*(1 - b*b)/(1 - a*b);
 }
 
 

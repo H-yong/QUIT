@@ -1,0 +1,234 @@
+/*
+ *  qi_esmt.cpp
+ *
+ *  Copyright (c) 2017 Tobias Wood.
+ *
+ *  This Source Code Form is subject to the terms of the Mozilla Public
+ *  License, v. 2.0. If a copy of the MPL was not distributed with this
+ *  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+ */
+
+#include <iostream>
+#include <Eigen/Dense>
+#include <Eigen/Eigenvalues>
+#include "args.hxx"
+#include "ceres/ceres.h"
+
+#include "QI/Util.h"
+#include "QI/IO.h"
+#include "QI/Args.h"
+#include "Filters/ApplyAlgorithmFilter.h"
+
+struct EMTCost {
+public:
+    const Eigen::ArrayXd &G;
+    const Eigen::ArrayXd &b;
+    const Eigen::ArrayXd &flip;
+    const Eigen::ArrayXd &int_omega2;
+    const Eigen::ArrayXd &TR;
+    const Eigen::ArrayXd &Trf;
+    const double T2f;
+    const double f0_Hz;
+
+    bool operator() (double const* const* p, double* resids) const {
+
+        const double &F = p[0][0];
+        const double &kf = p[0][1];
+        const double &T1f = p[0][2];
+        //const double &f0 = p[0][3];
+        //const double &psi0 = p[0][4];
+        
+        const Eigen::ArrayXd E1f = (-TR/T1f).exp();
+        const Eigen::ArrayXd E2f = (-TR/T2f).exp();
+        const double kr = (F > 0) ? (kf / F) : 0;
+        const double T1r = 1.0; // Fixed for now
+        const Eigen::ArrayXd E1r = (-TR/T1r).exp();
+        const Eigen::ArrayXd fk = (-TR*(kf + kr)).exp();
+    
+        const double T2r = 30.e-6; // Fixed for now;
+        const double G_gauss = (T2r / sqrt(2.*M_PI))*exp(-pow(2.*M_PI*f0_Hz*T2r,2) / 2.0);
+        const Eigen::ArrayXd WT = M_PI * int_omega2 * G_gauss; // # Product of W and Trf to save a division and multiplication
+        const Eigen::ArrayXd fw = (-WT).exp();
+        const Eigen::ArrayXd A = 1 + F - fw*E1r*(F+fk);
+        const Eigen::ArrayXd B = 1 + fk*(F-fw*E1r*(F+1));
+        const Eigen::ArrayXd C = F*(1-E1r)*(1-fk);
+    
+        const Eigen::ArrayXd denom = (A - B*E1f*cos(flip) - (E2f*E2f)*(B*E1f-A*cos(flip)));
+        const Eigen::ArrayXd Gp = (sin(flip)*((1-E1f)*B+C))/denom;
+        const Eigen::ArrayXd bp = (E2f*(A-B*E1f)*(1+cos(flip)))/denom;
+
+        Eigen::Map<Eigen::ArrayXd> r(resids, G.size() + b.size());
+        r.head(G.size()) = (G - Gp);
+        r.tail(b.size()) = (b - bp);
+        return true;
+    }
+};
+
+
+class EMT : public QI::ApplyVectorF::Algorithm {
+public:
+    const static size_t NumOutputs = 4;
+protected:
+    const Eigen::ArrayXd &flips;
+    const Eigen::ArrayXd &intB1;
+    const Eigen::ArrayXd &TRs;
+    const Eigen::ArrayXd &TRFs;
+    TOutput m_zero;
+public:
+
+    EMT(const Eigen::ArrayXd &f, const Eigen::ArrayXd &iB, const Eigen::ArrayXd &tr, const Eigen::ArrayXd &trf) :
+        flips(f), intB1(iB), TRs(tr), TRFs(trf)
+    {
+        m_zero = TOutput(NumOutputs);
+        m_zero.Fill(0.);
+    }
+
+    size_t numInputs() const override { return 3; }
+    size_t numConsts() const override { return 2; }
+    size_t numOutputs() const override { return NumOutputs; }
+    size_t dataSize() const override { return (flips.size() * 3); }
+    size_t outputSize(const int i) const override { return 1; }
+    virtual std::vector<float> defaultConsts() const override {
+        std::vector<float> def(2); // B1, f0
+        def[0] = 1.0; def[1] = 0.0;
+        return def;
+    }
+    virtual const TOutput &zero(const size_t i) const override { return m_zero; }
+    const std::vector<std::string> & names() const {
+        static std::vector<std::string> _names = {"F", "kf", "T1f", "T2f"};
+        return _names;
+    }
+    virtual bool apply(const std::vector<TInput> &inputs, const std::vector<TConst> &consts,
+                       std::vector<TOutput> &outputs, TConst &residual,
+                       TInput &resids, TIters &its) const override
+    {
+        const double B1 = consts[0];
+        const double f0_Hz = consts[1];
+
+        Eigen::Map<const Eigen::ArrayXf> in_G(inputs[0].GetDataPointer(), inputs[0].Size());
+        Eigen::Map<const Eigen::ArrayXf> in_a(inputs[1].GetDataPointer(), inputs[1].Size());
+        Eigen::Map<const Eigen::ArrayXf> in_b(inputs[2].GetDataPointer(), inputs[2].Size());
+
+        Eigen::ArrayXd G = in_G.cast<double>();
+        Eigen::ArrayXd a = in_a.cast<double>();
+        Eigen::ArrayXd b = in_b.cast<double>();
+        Eigen::ArrayXd T2fs = (-TRs.cast<double>() / a.log());
+        const double T2f = T2fs.mean(); // Different TRs so have to average afterwards
+
+        Eigen::Array3d p; p << 0.1, 6, 1.0;
+        ceres::Problem problem;
+        auto *cost = new ceres::DynamicNumericDiffCostFunction<EMTCost>(new EMTCost{G, b, flips*B1, intB1*B1, TRs, TRFs, T2f, f0_Hz});
+        cost->AddParameterBlock(3);
+        cost->SetNumResiduals(G.size() + b.size());
+        problem.AddResidualBlock(cost, NULL, p.data());
+        const double not_zero = std::nextafter(0.0, 1.0);
+        const double not_one  = std::nextafter(1.0, 0.0);
+        problem.SetParameterLowerBound(p.data(), 0, not_zero);
+        problem.SetParameterUpperBound(p.data(), 0, not_one);
+        problem.SetParameterLowerBound(p.data(), 1, 1.);
+        problem.SetParameterUpperBound(p.data(), 1, 10.);
+        problem.SetParameterLowerBound(p.data(), 2, 0.5);
+        problem.SetParameterUpperBound(p.data(), 2, 5.0);
+        ceres::Solver::Options options;
+        ceres::Solver::Summary summary;
+        options.max_num_iterations = 75;
+        options.function_tolerance = 1e-6;
+        options.gradient_tolerance = 1e-7;
+        options.parameter_tolerance = 1e-5;
+        options.logging_type = ceres::SILENT;
+        ceres::Solve(options, &problem, &summary);
+        if (!summary.IsSolutionUsable()) {
+            std::cerr << summary.FullReport() << std::endl;
+            std::cerr << "Parameters: " << p.transpose() << " T2f: " << T2f << " B1: " << B1 << std::endl;
+            std::cerr << "G: " << G.transpose() << std::endl;
+            std::cerr << "a: " << a.transpose() << std::endl;
+            std::cerr << "b: " << b.transpose() << std::endl;
+            return false;
+        }
+        // if (m_debug) std::cout << summary.FullReport() << std::endl;
+        outputs[0] = p[0];
+        outputs[1] = p[1];
+        outputs[2] = p[2];
+        outputs[3] = T2f;
+        return true;
+    }
+};
+
+int main(int argc, char **argv) {
+    Eigen::initParallel();
+    args::ArgumentParser parser("Calculates qMT parameters from ellipse parameters.\nInputs are G, a, b.\nhttp://github.com/spinicist/QUIT");
+    
+    args::Positional<std::string> G_path(parser, "G_FILE", "Input G file");
+    args::Positional<std::string> a_path(parser, "a_FILE", "Input a file");
+    args::Positional<std::string> b_path(parser, "b_FILE", "Input b file");
+    
+    args::HelpFlag help(parser, "HELP", "Show this help menu", {'h', "help"});
+    args::Flag     verbose(parser, "VERBOSE", "Print more information", {'v', "verbose"});
+    args::Flag     debug(parser, "DEBUG", "Output debugging messages", {'d', "debug"});
+    args::Flag     noprompt(parser, "NOPROMPT", "Suppress input prompts", {'n', "no-prompt"});
+    args::ValueFlag<int> threads(parser, "THREADS", "Use N threads (default=4, 0=hardware limit)", {'T', "threads"}, 4);
+    args::ValueFlag<std::string> outarg(parser, "PREFIX", "Add a prefix to output filenames", {'o', "out"});
+    args::ValueFlag<std::string> mask(parser, "MASK", "Only process voxels within the mask", {'m', "mask"});
+    args::ValueFlag<std::string> B1(parser, "B1", "B1 map (ratio)", {'b', "B1"});
+    args::ValueFlag<std::string> f0(parser, "f0", "f0 map (in Hertz)", {'f', "f0"});
+    args::ValueFlag<std::string> subregion(parser, "REGION", "Process subregion starting at voxel I,J,K with size SI,SJ,SK", {'s', "subregion"});
+    QI::ParseArgs(parser, argc, argv);
+    bool prompt = !noprompt;
+    
+    if (verbose) std::cout << "Opening file: " << QI::CheckPos(G_path) << std::endl;
+    auto G = QI::ReadVectorImage<float>(QI::CheckPos(G_path));
+    if (verbose) std::cout << "Opening file: " << QI::CheckPos(a_path) << std::endl;
+    auto a = QI::ReadVectorImage<float>(QI::CheckPos(a_path));
+    if (verbose) std::cout << "Opening file: " << QI::CheckPos(b_path) << std::endl;
+    auto b = QI::ReadVectorImage<float>(QI::CheckPos(b_path));
+
+    if (prompt) std::cout << "Enter flip-angles (degrees): ";
+    Eigen::ArrayXd flips; QI::ReadArray(std::cin, flips); flips *= M_PI/180.;
+    if (prompt) std::cout << "Enter integral B1^2: ";
+    Eigen::ArrayXd intB1; QI::ReadArray(std::cin, intB1);
+    if (prompt) std::cout << "Enter TRs (seconds): ";
+    Eigen::ArrayXd TRs; QI::ReadArray(std::cin, TRs);
+    if (prompt) std::cout << "Enter TRFs (seconds): ";
+    Eigen::ArrayXd TRFs; QI::ReadArray(std::cin, TRFs);
+    auto algo = std::make_shared<EMT>(flips, intB1, TRs, TRFs);
+
+    auto apply = QI::ApplyVectorF::New();
+    apply->SetAlgorithm(algo);
+    apply->SetPoolsize(threads.Get());
+    apply->SetSplitsPerThread(threads.Get());
+    apply->SetInput(0, G);
+    apply->SetInput(1, a);
+    apply->SetInput(2, b);
+    if (B1) apply->SetConst(0, QI::ReadImage(B1.Get()));
+    if (f0) apply->SetConst(1, QI::ReadImage(f0.Get()));
+    if (mask) apply->SetMask(QI::ReadImage(mask.Get()));
+
+    apply->SetVerbose(verbose);
+    if (subregion) {
+        apply->SetSubregion(QI::RegionArg(args::get(subregion)));
+    }
+    if (verbose) {
+        std::cout << "Flips: " << flips.transpose() << std::endl;
+        std::cout << "Int B1^2: " << intB1.transpose() << std::endl;
+        std::cout << "TR: " << TRs.transpose() << std::endl;
+        std::cout << "Trf: " << TRFs.transpose() << std::endl;
+        std::cout << "Processing" << std::endl;
+        auto monitor = QI::GenericMonitor::New();
+        apply->AddObserver(itk::ProgressEvent(), monitor);
+    }
+    apply->Update();
+    if (verbose) {
+        std::cout << "Elapsed time was " << apply->GetTotalTime() << "s" << std::endl;
+        std::cout << "Writing results files." << std::endl;
+    }
+    std::string outPrefix = args::get(outarg) + "EMT_";
+    for (int i = 0; i < algo->numOutputs(); i++) {
+        std::string outName = outPrefix + algo->names().at(i) + QI::OutExt();
+        if (verbose) std::cout << "Writing: " << outName << std::endl;
+        QI::WriteVectorImage(apply->GetOutput(i), outName);
+    }
+    
+    if (verbose) std::cout << "Finished." << std::endl;
+    return EXIT_SUCCESS;
+}
