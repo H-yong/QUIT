@@ -30,37 +30,61 @@ public:
     const Eigen::ArrayXd &Trf;
     const double T2f;
     const double f0_Hz;
+    const bool debug;
 
-    bool operator() (double const* const* p, double* resids) const {
+    template<typename T>
+    bool operator() (T const* const* p, T* resids) const {
+        typedef Eigen::Array<T, Eigen::Dynamic, 1> ArrayXT;
 
-        const double &F = p[0][0];
-        const double &kf = p[0][1];
-        const double &T1f = p[0][2];
+        const T &M0  = p[0][0];
+        const T &F   = p[0][1];
+        const T &kf  = p[0][2];
+        const T &T1f = p[0][3];
         //const double &f0 = p[0][3];
         //const double &psi0 = p[0][4];
         
-        const Eigen::ArrayXd E1f = (-TR/T1f).exp();
+        const ArrayXT E1f = (-TR/T1f).exp();
         const Eigen::ArrayXd E2f = (-TR/T2f).exp();
-        const double kr = (F > 0) ? (kf / F) : 0;
-        const double T1r = 1.0; // Fixed for now
+        const T kr = (F > 0.0) ? (kf / F) : T(0.0);
+        const double T1r = 2.0; // Fixed for now
         const Eigen::ArrayXd E1r = (-TR/T1r).exp();
-        const Eigen::ArrayXd fk = (-TR*(kf + kr)).exp();
+        const ArrayXT fk = (-TR*(kf + kr)).exp();
     
-        const double T2r = 30.e-6; // Fixed for now;
+        const double T2r = 25.e-6; // Fixed for now;
         const double G_gauss = (T2r / sqrt(2.*M_PI))*exp(-pow(2.*M_PI*f0_Hz*T2r,2) / 2.0);
         const Eigen::ArrayXd WT = M_PI * int_omega2 * G_gauss; // # Product of W and Trf to save a division and multiplication
         const Eigen::ArrayXd fw = (-WT).exp();
-        const Eigen::ArrayXd A = 1 + F - fw*E1r*(F+fk);
-        const Eigen::ArrayXd B = 1 + fk*(F-fw*E1r*(F+1));
-        const Eigen::ArrayXd C = F*(1-E1r)*(1-fk);
+        const ArrayXT A = 1.0 + F - fw*E1r*(F+fk);
+        const ArrayXT B = 1.0 + fk*(F-fw*E1r*(F+1.0));
+        const ArrayXT C = F*(1.0-E1r)*(1.0-fk);
     
-        const Eigen::ArrayXd denom = (A - B*E1f*cos(flip) - (E2f*E2f)*(B*E1f-A*cos(flip)));
-        const Eigen::ArrayXd Gp = (sin(flip)*((1-E1f)*B+C))/denom;
-        const Eigen::ArrayXd bp = (E2f*(A-B*E1f)*(1+cos(flip)))/denom;
+        const ArrayXT denom = (A - B*E1f*cos(flip) - (E2f*E2f)*(B*E1f-A*cos(flip)));
+        const ArrayXT Gp = M0*(sin(flip)*((1.0-E1f)*B+C))/denom;
+        const ArrayXT bp = (E2f*(A-B*E1f)*(1.0+cos(flip)))/denom;
 
-        Eigen::Map<Eigen::ArrayXd> r(resids, G.size() + b.size());
+        Eigen::Map<ArrayXT> r(resids, G.size() + b.size());
         r.head(G.size()) = (G - Gp);
         r.tail(b.size()) = (b - bp);
+        if (debug) {
+            std::cerr << "M0=" << M0 << "\nF=" << F << "\nkf=" << kf << "\nT1f=" << T1f << "\nT2f=" << T2f << "\nf0_Hz=" << f0_Hz << "\n"
+                      << "flip:" << flip.transpose() << "\n"
+                      << "int: " << int_omega2.transpose() << "\n"
+                      << "TR:  " << TR.transpose() << "\n"
+                      << "Trf: " << Trf.transpose() << "\n"
+                      << "E1r: " << E1r.transpose() << "\n"
+                      << "fk:  " << fk.transpose() << "\n"
+                      << "G_gauss: " << G_gauss << "\n"
+                      << "WT:  " << WT.transpose() << "\n"
+                      << "fw:  " << fw.transpose() << "\n"
+                      << "A:   " << A.transpose() << "\n"
+                      << "B:   " << B.transpose() << "\n"
+                      << "C:   " << C.transpose() << "\n"
+                      << "Gp:  " << Gp.transpose() << "\n"
+                      << "bp:  " << bp.transpose() << "\n"
+                      << "G:   " << G.transpose() << "\n"
+                      << "b:   " << b.transpose() << "\n"
+                      << "r:   " << r.transpose() << std::endl;
+        }
         return true;
     }
 };
@@ -68,17 +92,18 @@ public:
 
 class EMT : public QI::ApplyVectorF::Algorithm {
 public:
-    const static size_t NumOutputs = 4;
+    const static size_t NumOutputs = 5;
 protected:
     const Eigen::ArrayXd &flips;
     const Eigen::ArrayXd &intB1;
     const Eigen::ArrayXd &TRs;
     const Eigen::ArrayXd &TRFs;
+    const bool debug;
     TOutput m_zero;
 public:
 
-    EMT(const Eigen::ArrayXd &f, const Eigen::ArrayXd &iB, const Eigen::ArrayXd &tr, const Eigen::ArrayXd &trf) :
-        flips(f), intB1(iB), TRs(tr), TRFs(trf)
+    EMT(const Eigen::ArrayXd &f, const Eigen::ArrayXd &iB, const Eigen::ArrayXd &tr, const Eigen::ArrayXd &trf, const bool d) :
+        flips(f), intB1(iB), TRs(tr), TRFs(trf), debug(d)
     {
         m_zero = TOutput(NumOutputs);
         m_zero.Fill(0.);
@@ -96,7 +121,7 @@ public:
     }
     virtual const TOutput &zero(const size_t i) const override { return m_zero; }
     const std::vector<std::string> & names() const {
-        static std::vector<std::string> _names = {"F", "kf", "T1f", "T2f"};
+        static std::vector<std::string> _names = {"M0", "F", "kf", "T1f", "T2f"};
         return _names;
     }
     virtual bool apply(const std::vector<TInput> &inputs, const std::vector<TConst> &consts,
@@ -110,33 +135,36 @@ public:
         Eigen::Map<const Eigen::ArrayXf> in_a(inputs[1].GetDataPointer(), inputs[1].Size());
         Eigen::Map<const Eigen::ArrayXf> in_b(inputs[2].GetDataPointer(), inputs[2].Size());
 
-        Eigen::ArrayXd G = in_G.cast<double>();
+        const double scale = in_G.mean();
+        Eigen::ArrayXd G = in_G.cast<double>() / scale;
         Eigen::ArrayXd a = in_a.cast<double>();
         Eigen::ArrayXd b = in_b.cast<double>();
         Eigen::ArrayXd T2fs = (-TRs.cast<double>() / a.log());
         const double T2f = T2fs.mean(); // Different TRs so have to average afterwards
 
-        Eigen::Array3d p; p << 0.1, 6, 1.0;
+        Eigen::Array4d p; p << 15.0, 0.1, 1.0, 1.0;
         ceres::Problem problem;
-        auto *cost = new ceres::DynamicNumericDiffCostFunction<EMTCost>(new EMTCost{G, b, flips*B1, intB1*B1, TRs, TRFs, T2f, f0_Hz});
-        cost->AddParameterBlock(3);
+        auto *cost = new ceres::DynamicAutoDiffCostFunction<EMTCost>(new EMTCost{G, b, flips*B1, intB1*B1*B1, TRs, TRFs, T2f, f0_Hz, debug});
+        cost->AddParameterBlock(4);
         cost->SetNumResiduals(G.size() + b.size());
         problem.AddResidualBlock(cost, NULL, p.data());
         const double not_zero = std::nextafter(0.0, 1.0);
         const double not_one  = std::nextafter(1.0, 0.0);
-        problem.SetParameterLowerBound(p.data(), 0, not_zero);
-        problem.SetParameterUpperBound(p.data(), 0, not_one);
-        problem.SetParameterLowerBound(p.data(), 1, 1.);
-        problem.SetParameterUpperBound(p.data(), 1, 10.);
+        problem.SetParameterLowerBound(p.data(), 0, 0.1);
+        problem.SetParameterUpperBound(p.data(), 0, 20.0);
+        problem.SetParameterLowerBound(p.data(), 1, 1e-6);
+        problem.SetParameterUpperBound(p.data(), 1, 1.0 - 1e-6);
         problem.SetParameterLowerBound(p.data(), 2, 0.5);
-        problem.SetParameterUpperBound(p.data(), 2, 5.0);
+        problem.SetParameterUpperBound(p.data(), 2, 20.);
+        problem.SetParameterLowerBound(p.data(), 3, 0.1);
+        problem.SetParameterUpperBound(p.data(), 3, 5.0);
         ceres::Solver::Options options;
         ceres::Solver::Summary summary;
-        options.max_num_iterations = 75;
-        options.function_tolerance = 1e-6;
-        options.gradient_tolerance = 1e-7;
-        options.parameter_tolerance = 1e-5;
-        options.logging_type = ceres::SILENT;
+        options.max_num_iterations = 100;
+        options.function_tolerance = 1e-7;
+        options.gradient_tolerance = 1e-8;
+        options.parameter_tolerance = 1e-6;
+        if (!debug) options.logging_type = ceres::SILENT;
         ceres::Solve(options, &problem, &summary);
         if (!summary.IsSolutionUsable()) {
             std::cerr << summary.FullReport() << std::endl;
@@ -145,12 +173,14 @@ public:
             std::cerr << "a: " << a.transpose() << std::endl;
             std::cerr << "b: " << b.transpose() << std::endl;
             return false;
+        } else if (debug) {
+            std::cout << summary.FullReport() << std::endl;
         }
-        // if (m_debug) std::cout << summary.FullReport() << std::endl;
-        outputs[0] = p[0];
+        outputs[0] = p[0] * scale;
         outputs[1] = p[1];
         outputs[2] = p[2];
-        outputs[3] = T2f;
+        outputs[3] = p[3];
+        outputs[4] = T2f;
         return true;
     }
 };
@@ -191,7 +221,7 @@ int main(int argc, char **argv) {
     Eigen::ArrayXd TRs; QI::ReadArray(std::cin, TRs);
     if (prompt) std::cout << "Enter TRFs (seconds): ";
     Eigen::ArrayXd TRFs; QI::ReadArray(std::cin, TRFs);
-    auto algo = std::make_shared<EMT>(flips, intB1, TRs, TRFs);
+    auto algo = std::make_shared<EMT>(flips, intB1, TRs, TRFs, debug);
 
     auto apply = QI::ApplyVectorF::New();
     apply->SetAlgorithm(algo);
