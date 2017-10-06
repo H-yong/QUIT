@@ -38,7 +38,6 @@ int main(int argc, char **argv) {
     args::ValueFlag<std::string> mask(parser, "MASK", "Only process voxels within the mask", {'m', "mask"});
     args::ValueFlag<std::string> subregion(parser, "REGION", "Process subregion starting at voxel I,J,K with size SI,SJ,SK", {'s', "subregion"});
     args::ValueFlag<char> algorithm(parser, "ALGO", "Choose algorithm (h/d)", {'a', "algo"}, 'h');
-    args::Flag ph_order(parser, "PH_FIRST", "Data order is phase, then flip-angle (default opposite).", {"ph_order"});
     QI::ParseArgs(parser, argc, argv);
     bool prompt = !noprompt;
     
@@ -48,8 +47,8 @@ int main(int argc, char **argv) {
     if (verbose) cout << *seq;
     shared_ptr<QI::EllipseAlgo> algo;
     switch (algorithm.Get()) {
-    case 'h': algo = make_shared<QI::EllipseAlgo>(QI::EllipseMethods::Hyper, seq, debug, ph_order); break;
-    case 'd': algo = make_shared<QI::EllipseAlgo>(QI::EllipseMethods::Direct, seq, debug, ph_order); break;
+    case 'h': algo = make_shared<QI::EllipseAlgo>(QI::EllipseMethods::Hyper, seq, debug); break;
+    case 'd': algo = make_shared<QI::EllipseAlgo>(QI::EllipseMethods::Direct, seq, debug); break;
     }
     auto apply = QI::ApplyVectorXFVectorF::New();
     apply->SetAlgorithm(algo);

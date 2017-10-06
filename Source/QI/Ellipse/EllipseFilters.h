@@ -34,13 +34,13 @@ public:
     typedef const Eigen::Map<const Eigen::ArrayXcf, 0, Eigen::InnerStride<>> map_t;
 protected:
     EllipseMethods m_method;
-    bool m_phaseFirst = false, m_debug = false;
+    bool m_debug = false;
     std::shared_ptr<QI::SSFPEcho> m_sequence = nullptr;
     TOutput m_zero;
 public:
 
-    EllipseAlgo(EllipseMethods m, std::shared_ptr<QI::SSFPEcho> &seq, bool debug, bool phase) :
-        m_method(m), m_sequence(seq), m_debug(debug), m_phaseFirst(phase)
+    EllipseAlgo(EllipseMethods m, std::shared_ptr<QI::SSFPEcho> &seq, bool debug) :
+        m_method(m), m_sequence(seq), m_debug(debug)
     {
         m_zero = TOutput(m_sequence->flip().rows());
         m_zero.Fill(0.);
@@ -51,7 +51,6 @@ public:
     size_t numOutputs() const override { return NumOutputs; }
     size_t dataSize() const override { return m_sequence->size(); }
     size_t outputSize(const int i) const override { return m_sequence->flip().rows(); }
-    void setReorderPhase(const bool p) { m_phaseFirst = p; }
     virtual std::vector<float> defaultConsts() const override {
         std::vector<float> def(1, 1.0f); // B1
         return def;
@@ -65,19 +64,19 @@ public:
                        std::vector<TOutput> &outputs, TConst &residual,
                        TInput &resids, TIters &its) const override
     {
-        size_t phase_stride = m_sequence->flip().rows();
-        size_t flip_stride = 1;
-        if (m_phaseFirst)
-            std::swap(phase_stride, flip_stride);
+        const int np = m_sequence->phase_incs().rows();
         for (int f = 0; f < m_sequence->flip().rows(); f++) {
-            map_t vf(inputs[0].GetDataPointer() + f*flip_stride, m_sequence->phase_incs().rows(), Eigen::InnerStride<>(phase_stride));
+            Eigen::ArrayXcf data(np);
+            for (int i = 0; i < np; i++) {
+                data[i] = inputs[0][f*np + i];
+            }
             if (m_debug) {
-                //std::cout << "Flip: " << m_sequence->flip() << " B1: " << B1 << " B1*flip: " << B1*m_sequence->flip() << std::endl;
+                std::cout << "Flip: " << m_sequence->flip()[f] << " Data: " << data.transpose() << std::endl;
             }
             Array5d tempOutputs;
             switch (m_method) {
-                case EllipseMethods::Hyper: tempOutputs = HyperEllipse(vf, m_sequence->TR(), m_sequence->phase_incs()); break;
-                case EllipseMethods::Direct: tempOutputs = DirectEllipse(vf, m_sequence->TR(), m_sequence->phase_incs(), m_debug); break;
+                case EllipseMethods::Hyper: tempOutputs = HyperEllipse(data, m_sequence->TR(), m_sequence->phase_incs()); break;
+                case EllipseMethods::Direct: tempOutputs = DirectEllipse(data, m_sequence->TR(), m_sequence->phase_incs(), m_debug); break;
             }
             for (int o = 0; o < NumOutputs; o++) {
                 outputs[o][f] = tempOutputs[o];
