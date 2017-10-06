@@ -28,6 +28,7 @@ public:
     const Eigen::ArrayXd &int_omega2;
     const Eigen::ArrayXd &TR;
     const Eigen::ArrayXd &Trf;
+    const double T2r;
     const double T2f;
     const double f0_Hz;
     const bool debug;
@@ -40,26 +41,27 @@ public:
         const T &F   = p[0][1];
         const T &kf  = p[0][2];
         const T &T1f = p[0][3];
-        //const double &f0 = p[0][3];
-        //const double &psi0 = p[0][4];
-        
+        const T &T1r = T1f; //p[0][3];
+        //const double &T2r = 12.0e-6; //p[0][4];
+
         const ArrayXT E1f = (-TR/T1f).exp();
         const Eigen::ArrayXd E2f = (-TR/T2f).exp();
+        const Eigen::ArrayXd E2f_echo = (-TR/(2.0*T2f)).exp();
         const T kr = (F > 0.0) ? (kf / F) : T(0.0);
-        const double T1r = 2.0; // Fixed for now
-        const Eigen::ArrayXd E1r = (-TR/T1r).exp();
+        //const double T1r = 1.0; // Fixed for now
+        const ArrayXT E1r = (-TR/T1r).exp();
         const ArrayXT fk = (-TR*(kf + kr)).exp();
-    
-        const double T2r = 25.e-6; // Fixed for now;
+
+        //const double T2r = 25.e-6; // Fixed for now;
         const double G_gauss = (T2r / sqrt(2.*M_PI))*exp(-pow(2.*M_PI*f0_Hz*T2r,2) / 2.0);
         const Eigen::ArrayXd WT = M_PI * int_omega2 * G_gauss; // # Product of W and Trf to save a division and multiplication
         const Eigen::ArrayXd fw = (-WT).exp();
         const ArrayXT A = 1.0 + F - fw*E1r*(F+fk);
         const ArrayXT B = 1.0 + fk*(F-fw*E1r*(F+1.0));
         const ArrayXT C = F*(1.0-E1r)*(1.0-fk);
-    
+
         const ArrayXT denom = (A - B*E1f*cos(flip) - (E2f*E2f)*(B*E1f-A*cos(flip)));
-        const ArrayXT Gp = M0*(sin(flip)*((1.0-E1f)*B+C))/denom;
+        const ArrayXT Gp = M0*E2f_echo*(sin(flip)*((1.0-E1f)*B+C))/denom;
         const ArrayXT bp = (E2f*(A-B*E1f)*(1.0+cos(flip)))/denom;
 
         Eigen::Map<ArrayXT> r(resids, G.size() + b.size());
@@ -90,7 +92,7 @@ public:
 };
 
 
-class EMT : public QI::ApplyVectorF::Algorithm {
+class EMT : public QI::ApplyF::Algorithm {
 public:
     const static size_t NumOutputs = 5;
 protected:
@@ -98,15 +100,13 @@ protected:
     const Eigen::ArrayXd &intB1;
     const Eigen::ArrayXd &TRs;
     const Eigen::ArrayXd &TRFs;
+    const double T2r;
     const bool debug;
-    TOutput m_zero;
 public:
 
-    EMT(const Eigen::ArrayXd &f, const Eigen::ArrayXd &iB, const Eigen::ArrayXd &tr, const Eigen::ArrayXd &trf, const bool d) :
-        flips(f), intB1(iB), TRs(tr), TRFs(trf), debug(d)
+    EMT(const Eigen::ArrayXd &f, const Eigen::ArrayXd &iB, const Eigen::ArrayXd &tr, const Eigen::ArrayXd &trf, const double T2, const bool d) :
+        flips(f), intB1(iB), TRs(tr), TRFs(trf), T2r(T2), debug(d)
     {
-        m_zero = TOutput(NumOutputs);
-        m_zero.Fill(0.);
     }
 
     size_t numInputs() const override { return 3; }
@@ -119,7 +119,7 @@ public:
         def[0] = 1.0; def[1] = 0.0;
         return def;
     }
-    virtual const TOutput &zero(const size_t i) const override { return m_zero; }
+    virtual const TOutput &zero(const size_t i) const override { static const float zero = 0.f; return zero; }
     const std::vector<std::string> & names() const {
         static std::vector<std::string> _names = {"M0", "F", "kf", "T1f", "T2f"};
         return _names;
@@ -142,9 +142,9 @@ public:
         Eigen::ArrayXd T2fs = (-TRs.cast<double>() / a.log());
         const double T2f = T2fs.mean(); // Different TRs so have to average afterwards
 
-        Eigen::Array4d p; p << 15.0, 0.1, 1.0, 1.0;
+        Eigen::Array<double, 6, 1> p; p << 15.0, 0.05, 5.0, 1.0;
         ceres::Problem problem;
-        auto *cost = new ceres::DynamicAutoDiffCostFunction<EMTCost>(new EMTCost{G, b, flips*B1, intB1*B1*B1, TRs, TRFs, T2f, f0_Hz, debug});
+        auto *cost = new ceres::DynamicAutoDiffCostFunction<EMTCost>(new EMTCost{G, b, flips*B1, intB1*B1*B1, TRs, TRFs, T2r, T2f, f0_Hz, debug});
         cost->AddParameterBlock(4);
         cost->SetNumResiduals(G.size() + b.size());
         problem.AddResidualBlock(cost, NULL, p.data());
@@ -154,9 +154,9 @@ public:
         problem.SetParameterUpperBound(p.data(), 0, 20.0);
         problem.SetParameterLowerBound(p.data(), 1, 1e-6);
         problem.SetParameterUpperBound(p.data(), 1, 1.0 - 1e-6);
-        problem.SetParameterLowerBound(p.data(), 2, 0.5);
-        problem.SetParameterUpperBound(p.data(), 2, 20.);
-        problem.SetParameterLowerBound(p.data(), 3, 0.1);
+        problem.SetParameterLowerBound(p.data(), 2, 0.1);
+        problem.SetParameterUpperBound(p.data(), 2, 10.0);
+        problem.SetParameterLowerBound(p.data(), 3, 0.5);
         problem.SetParameterUpperBound(p.data(), 3, 5.0);
         ceres::Solver::Options options;
         ceres::Solver::Summary summary;
@@ -181,6 +181,24 @@ public:
         outputs[2] = p[2];
         outputs[3] = p[3];
         outputs[4] = T2f;
+
+        residual = summary.final_cost * scale;
+
+        if (resids.Size() > 0) {
+            assert(resids.Size() == data.size());
+            std::vector<double> r_temp(G.size() + a.size() + b.size());
+            problem.Evaluate(ceres::Problem::EvaluateOptions(), NULL, &r_temp, NULL, NULL);
+            for (int i = 0; i < G.size(); i++)
+                resids[i] = r_temp[i];
+            Eigen::ArrayXd as = (-TRs.cast<double>() / T2f).exp();
+            for (int i = 0; i < a.size(); i++) {
+                resids[i + G.size()] = as[i] - a[i];
+            }
+            for (int i = 0; i < b.size(); i++) {
+                resids[i + G.size() + a.size()] = r_temp[i + G.size()];
+            }
+        }
+
         return true;
     }
 };
@@ -202,7 +220,9 @@ int main(int argc, char **argv) {
     args::ValueFlag<std::string> mask(parser, "MASK", "Only process voxels within the mask", {'m', "mask"});
     args::ValueFlag<std::string> B1(parser, "B1", "B1 map (ratio)", {'b', "B1"});
     args::ValueFlag<std::string> f0(parser, "f0", "f0 map (in Hertz)", {'f', "f0"});
+    args::ValueFlag<double> T2r_us(parser, "T2r", "T2r (in microseconds, default 12)", {"T2r"}, 12);
     args::ValueFlag<std::string> subregion(parser, "REGION", "Process subregion starting at voxel I,J,K with size SI,SJ,SK", {'s', "subregion"});
+    args::Flag     all_residuals(parser, "RESIDUALS", "Write out all residuals", {'r',"all_resids"});
     QI::ParseArgs(parser, argc, argv);
     bool prompt = !noprompt;
     
@@ -221,12 +241,16 @@ int main(int argc, char **argv) {
     Eigen::ArrayXd TRs; QI::ReadArray(std::cin, TRs);
     if (prompt) std::cout << "Enter TRFs (seconds): ";
     Eigen::ArrayXd TRFs; QI::ReadArray(std::cin, TRFs);
-    auto algo = std::make_shared<EMT>(flips, intB1, TRs, TRFs, debug);
+    if (verbose) {
+        std::cout << "T2r " << T2r_us.Get() << "us" << std::endl;
+    }
+    auto algo = std::make_shared<EMT>(flips, intB1, TRs, TRFs, T2r_us.Get() * 1e-6, debug);
 
-    auto apply = QI::ApplyVectorF::New();
+    auto apply = QI::ApplyF::New();
     apply->SetAlgorithm(algo);
     apply->SetPoolsize(threads.Get());
     apply->SetSplitsPerThread(threads.Get());
+    apply->SetOutputAllResiduals(all_residuals);
     apply->SetInput(0, G);
     apply->SetInput(1, a);
     apply->SetInput(2, b);
@@ -252,13 +276,19 @@ int main(int argc, char **argv) {
         std::cout << "Elapsed time was " << apply->GetTotalTime() << "s" << std::endl;
         std::cout << "Writing results files." << std::endl;
     }
-    std::string outPrefix = args::get(outarg) + "EMT_";
+    std::string outPrefix = outarg.Get() + "EMT_";
     for (int i = 0; i < algo->numOutputs(); i++) {
         std::string outName = outPrefix + algo->names().at(i) + QI::OutExt();
         if (verbose) std::cout << "Writing: " << outName << std::endl;
-        QI::WriteVectorImage(apply->GetOutput(i), outName);
+        QI::WriteImage(apply->GetOutput(i), outName);
     }
-    
+    if (verbose) std::cout << "Writing total residual." << std::endl;
+    QI::WriteImage(apply->GetResidualOutput(), outPrefix + "residual" + QI::OutExt());
+    if (all_residuals) {
+        if (verbose) std::cout << "Writing individual residuals." << std::endl;
+        QI::WriteScaledVectorImage(apply->GetAllResidualsOutput(), apply->GetOutput(0), outPrefix + "all_residuals" + QI::OutExt());
+    }
+
     if (verbose) std::cout << "Finished." << std::endl;
     return EXIT_SUCCESS;
 }
