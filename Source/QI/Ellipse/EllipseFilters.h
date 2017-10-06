@@ -77,7 +77,7 @@ public:
             Array5d tempOutputs;
             switch (m_method) {
                 case EllipseMethods::Hyper: tempOutputs = HyperEllipse(vf, m_sequence->TR(), m_sequence->phase_incs()); break;
-                case EllipseMethods::Direct: tempOutputs = DirectEllipse(vf, m_sequence->TR(), m_sequence->phase_incs()); break;
+                case EllipseMethods::Direct: tempOutputs = DirectEllipse(vf, m_sequence->TR(), m_sequence->phase_incs(), m_debug); break;
             }
             for (int o = 0; o < NumOutputs; o++) {
                 outputs[o][f] = tempOutputs[o];

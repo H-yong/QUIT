@@ -106,45 +106,54 @@ public:
     const Eigen::ArrayXcd &data;
     const double TR;
     const Eigen::ArrayXd &phi;
+    const bool debug;
 
-    bool operator() (double const* const* p, double* resids) const {
+    template<typename T>
+    bool operator() (T const* const* p, T* resids) const {
+        typedef Eigen::Array<T, Eigen::Dynamic, 1> ArrayXT;
 
-        const double &G = p[0][0];
-        const double &a = p[0][1];
-        const double &b = p[0][2];
-        const double &f0 = p[0][3];
-        const double &psi0 = p[0][4];
+        const T &G = p[0][0];
+        const T &a = p[0][1];
+        const T &b = p[0][2];
+        const T &f0 = p[0][3];
+        const T &psi0 = p[0][4];
         // Convert the SSFP Ellipse parameters into a magnetization
-        const double theta0 = 2*M_PI*f0*TR;
-        const Eigen::ArrayXd theta = theta0 - phi;
-        const double psi = theta0/2 + psi0;
-        Eigen::ArrayXcd et(theta.size());
-        et.real() = cos(theta);
-        et.imag() = sin(theta);
-        const Eigen::ArrayXcd m = G*std::polar(1.0, psi)*(1 - a*et) /
-                                  (1 - b*cos(theta));
-        Eigen::Map<Eigen::ArrayXd> r(resids, data.size());
-        r = (m - data).abs();
-        /*std::cout << "*** COST ***" << std::endl;
-        std::cout << "G " << G << " a " << a << " b " << b << " f0 " << f0 << " phi0 " << phi0 << std::endl;
-        std::cout << "psi " << psi << " theta " << theta.transpose() << std::endl;
-        std::cout << "m " << m.transpose() << std::endl;
-        std::cout << "d " << data.transpose() << std::endl;
-        std::cout << "r " << r.transpose() << std::endl;*/
+        const T theta0 = 2.0*M_PI*f0*TR;
+        const ArrayXT theta = theta0 - phi;
+        const T psi = theta0/2.0 + psi0;
+        const ArrayXT cos_th = cos(theta);
+        const ArrayXT sin_th = sin(theta);
+        const T cos_psi = cos(psi);
+        const T sin_psi = sin(psi);
+        const ArrayXT re_m = (cos_psi - a*cos_th*cos_psi + a*sin_th*sin_psi) * G / (1.0 - b*cos_th);
+        const ArrayXT im_m = (sin_psi - a*cos_th*sin_psi - a*sin_th*cos_psi) * G / (1.0 - b*cos_th);
+        Eigen::Map<ArrayXT> r(resids, data.size()*2);
+        r.head(data.size()) = re_m - data.real();
+        r.tail(data.size()) = im_m - data.imag();
+        if (debug) {
+            std::cout << "*** COST ***\n"
+                << "G " << G << " a " << a << " b " << b << " f0 " << f0 << " psi0 " << psi0
+                << "\npsi " << psi << " \ntheta\n" << theta
+                << "\nre_m\n" << re_m
+                << "\nre(d)\n" << data.real()
+                << "\nim_m\n" << im_m
+                << "\nim(d)\n" << data.imag()
+                << "\nr\n" << r << std::endl;
+        }
         return true;
     }
 };
 
-Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eigen::ArrayXd &phi) {
+Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eigen::ArrayXd &phi, const bool debug) {
     Eigen::ArrayXcd data = indata.cast<std::complex<double>>();
     const double scale = data.abs().maxCoeff();
     data /= scale;
 
     std::complex<double> c_mean = data.mean();
 
-    auto *cost = new ceres::DynamicNumericDiffCostFunction<EllipseCost>(new EllipseCost{data, TR, phi});
+    auto *cost = new ceres::DynamicAutoDiffCostFunction<EllipseCost>(new EllipseCost{data, TR, phi, debug});
     cost->AddParameterBlock(5);
-    cost->SetNumResiduals(data.size());
+    cost->SetNumResiduals(data.size()*2);
 
     // Get as estimate of f0 and psi0
     // Assume first point is 180 phase increment and take the phase difference
@@ -168,9 +177,9 @@ Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eige
     options.function_tolerance = 1e-5;
     options.gradient_tolerance = 1e-6;
     options.parameter_tolerance = 1e-4;
-    options.logging_type = ceres::SILENT;
+    if (!debug) options.logging_type = ceres::SILENT;
     ceres::Solve(options, &problem, &summary);
-    if (!summary.IsSolutionUsable()) {
+    if (debug || !summary.IsSolutionUsable()) {
         std::cout << summary.FullReport() << std::endl;
     }
     // std::cout << "End p: " << p.transpose() << std::endl;

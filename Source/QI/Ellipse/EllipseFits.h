@@ -21,7 +21,7 @@ typedef Eigen::Array<double, 5, 1> Array5d;
 enum class EllipseMethods { Hyper, Direct };
 
 Array5d HyperEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi);
-Array5d DirectEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi);
+Array5d DirectEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi, const bool debug);
 
 } // End namespace QI
 
