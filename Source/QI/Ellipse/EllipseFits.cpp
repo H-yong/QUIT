@@ -156,16 +156,47 @@ Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eige
     cost->SetNumResiduals(data.size()*2);
 
     // Get as estimate of f0 and psi0
-    // Assume first point is 180 phase increment and take the phase difference
-    const double theta0_est = arg((data[0] / c_mean) - std::complex<double>(1.0, 0.0));
+    // Do a linear regression of phi against unwrapped phase diff, intercept is theta0
+    Eigen::VectorXd Y = (data / c_mean - std::complex<double>(1.0, 0.0)).arg();
+    if (debug) {
+        std::cout << "*** START ***\nY wrapped:   " << Y.transpose() << std::endl;
+    }
+    const int sz = Y.rows();
+    Eigen::ArrayXd diff = Y.tail(sz - 1) - Y.head(sz - 1);
+    const Eigen::ArrayXd diffmod = ((diff+M_PI) - (2*M_PI)*floor((diff+M_PI)/(2*M_PI))) - M_PI;
+    Eigen::VectorXd ph_correct = diffmod - diff;
+    for (int i = 0; i < (sz - 1); i++) {
+        if (std::abs(diff[i]) < M_PI) ph_correct[i] = 0;
+    }
+    for (int i = 1; i < (sz - 1); i++) {
+        ph_correct[i] += ph_correct[i - 1];
+    }
+    Y.tail(sz - 1) += ph_correct;
+    if (debug) {
+        std::cout << "Diff         " << diff.transpose() << std::endl;
+        std::cout << "Diffmod      " << diffmod.transpose() << std::endl;
+        std::cout << "Ph correct   " << ph_correct.transpose() << std::endl;
+        std::cout << "Y unwrapped: " << Y.transpose() << std::endl;
+    }
+    Eigen::MatrixXd X(Y.rows(), 2);
+    X.col(0) = phi - M_PI;
+    X.col(1).setOnes();
+    const Eigen::VectorXd b = (X.transpose() * X).partialPivLu().solve(X.transpose() * Y);
+    const double theta0_est = b[1];
     const double psi0_est   = arg(c_mean / std::polar(1.0, theta0_est/2));
-
+    if (debug) {
+        std::cerr << "X\n" << X.transpose() << "\nY\n" << Y.transpose() << std::endl;
+        std::cerr << "b " << b.transpose() << " theta0_est " << theta0_est << " psi0_est " << psi0_est << std::endl;
+        std::cerr << "arg(c_mean) " << std::arg(c_mean) << std::endl;
+        std::cerr << "old theta0_est " << arg((data[0] / c_mean) - std::complex<double>(1.0, 0.0)) << std::endl;
+    }
+    
     Array5d p; p << abs(c_mean), 0.95, 0.75, theta0_est / (2.0 * M_PI * TR), psi0_est;
     // std::cout << "Start p: " << p.transpose() << std::endl;
     ceres::Problem problem;
     problem.AddResidualBlock(cost, NULL, p.data());
-    const double not_zero = std::nextafter(0.0, 1.0);
-    const double not_one  = std::nextafter(1.0, 0.0);
+    const double not_zero = 1.0e-6;
+    const double not_one  = 1.0 - not_zero;
     problem.SetParameterLowerBound(p.data(), 0, not_zero); problem.SetParameterUpperBound(p.data(), 0, not_one);
     problem.SetParameterLowerBound(p.data(), 1, not_zero); problem.SetParameterUpperBound(p.data(), 1, not_one);
     problem.SetParameterLowerBound(p.data(), 2, not_zero); problem.SetParameterUpperBound(p.data(), 2, not_one);
@@ -183,7 +214,8 @@ Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eige
         std::cout << summary.FullReport() << std::endl;
     }
     // std::cout << "End p: " << p.transpose() << std::endl;
-    p[0] *= scale;
+    // p[0] *= scale;
+    p[0] = arg(c_mean);
     return p;
 };
 
