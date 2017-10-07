@@ -194,9 +194,7 @@ Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eige
     if (debug || !summary.IsSolutionUsable()) {
         std::cout << summary.FullReport() << std::endl;
     }
-    // std::cout << "End p: " << p.transpose() << std::endl;
-    // p[0] *= scale;
-    p[0] = arg(c_mean);
+    p[0] *= scale;
     return p;
 };
 
