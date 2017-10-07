@@ -21,6 +21,8 @@
 
 namespace QI {
 
+Eigen::ArrayXd Unwrap(const Eigen::ArrayXd &x);
+
 void SemiaxesToHoff(const double A, const double B, const double c,
                     double &G, double &a, double &b);
 

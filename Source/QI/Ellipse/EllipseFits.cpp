@@ -11,6 +11,7 @@
 
 #include "QI/Ellipse/EllipseFits.h"
 #include "QI/Ellipse/EllipseHelpers.h"
+#include "QI/Fit.h"
 #include "ceres/ceres.h"
 
 namespace QI {
@@ -93,7 +94,7 @@ Array5d HyperEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen:
     Eigen::MatrixXd lhs(rhs.rows(), 2);
     lhs.col(0) = cos(phi);
     lhs.col(1) = sin(phi);
-    const Eigen::VectorXd K = (lhs.transpose() * lhs).partialPivLu().solve(lhs.transpose() * rhs);
+    const Eigen::VectorXd K = QI::LeastSquares(lhs, rhs);
     const double theta_0 = atan2(K[1], K[0]);
     const double psi_0 = std::arg(std::polar(1.0, theta_te) / std::polar(1.0, theta_0/2));
     Array5d outputs;
@@ -157,32 +158,12 @@ Array5d DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eige
 
     // Get as estimate of f0 and psi0
     // Do a linear regression of phi against unwrapped phase diff, intercept is theta0
-    Eigen::VectorXd Y = (data / c_mean - std::complex<double>(1.0, 0.0)).arg();
-    if (debug) {
-        std::cout << "*** START ***\nY wrapped:   " << Y.transpose() << std::endl;
-    }
-    const int sz = Y.rows();
-    Eigen::ArrayXd diff = Y.tail(sz - 1) - Y.head(sz - 1);
-    const Eigen::ArrayXd diffmod = ((diff+M_PI) - (2*M_PI)*floor((diff+M_PI)/(2*M_PI))) - M_PI;
-    Eigen::VectorXd ph_correct = diffmod - diff;
-    for (int i = 0; i < (sz - 1); i++) {
-        if (std::abs(diff[i]) < M_PI) ph_correct[i] = 0;
-    }
-    for (int i = 1; i < (sz - 1); i++) {
-        ph_correct[i] += ph_correct[i - 1];
-    }
-    Y.tail(sz - 1) += ph_correct;
-    if (debug) {
-        std::cout << "Diff         " << diff.transpose() << std::endl;
-        std::cout << "Diffmod      " << diffmod.transpose() << std::endl;
-        std::cout << "Ph correct   " << ph_correct.transpose() << std::endl;
-        std::cout << "Y unwrapped: " << Y.transpose() << std::endl;
-    }
+    Eigen::VectorXd Y = QI::Unwrap((data / c_mean - std::complex<double>(1.0, 0.0)).arg());
     Eigen::MatrixXd X(Y.rows(), 2);
     X.col(0) = phi - M_PI;
     X.col(1).setOnes();
-    const Eigen::VectorXd b = (X.transpose() * X).partialPivLu().solve(X.transpose() * Y);
-    const double theta0_est = b[1];
+    const Eigen::VectorXd b = QI::LeastSquares(X, Y);
+    const double theta0_est = arg((data[0] / c_mean) - std::complex<double>(1.0, 0.0));//b[1];
     const double psi0_est   = arg(c_mean / std::polar(1.0, theta0_est/2));
     if (debug) {
         std::cerr << "X\n" << X.transpose() << "\nY\n" << Y.transpose() << std::endl;
