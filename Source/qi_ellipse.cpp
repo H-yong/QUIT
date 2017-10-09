@@ -17,8 +17,7 @@
 #include "QI/Util.h"
 #include "QI/IO.h"
 #include "QI/Args.h"
-#include "QI/Ellipse/EllipseFilters.h"
-#include "Filters/ApplyAlgorithmFilter.h"
+#include "QI/Ellipse/EllipseAlgo.h"
 
 using namespace std;
 using namespace Eigen;

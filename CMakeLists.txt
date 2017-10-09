@@ -68,7 +68,7 @@ set( ELDIR ${QIDIR}/Ellipse )
 add_library( CEST    STATIC ${QIDIR}/CEST.cpp )
 target_link_libraries( CEST ${CERES_LIBRARIES} )
 add_library( Banding STATIC ${QIDIR}/Banding.cpp )
-add_library( Ellipse STATIC ${ELDIR}/EllipseFilters.cpp ${ELDIR}/EllipseHelpers.cpp ${ELDIR}/EllipseFits.cpp )
+add_library( Ellipse STATIC ${ELDIR}/EllipseAlgo.cpp ${ELDIR}/EllipseHelpers.cpp ${ELDIR}/Direct.cpp ${ELDIR}/Hyper.cpp )
 target_link_libraries( Ellipse ${CERES_LIBRARIES} ${SIGLIB} )
 add_library( Masking STATIC ${QIDIR}/Masking.cpp )
 

@@ -1,7 +1,7 @@
 /*
- *  Ellipse.h
+ *  EllipseAlgo.h
  *
- *  Copyright (c) 2016 Tobias Wood.
+ *  Copyright (c) 2016, 2017 Tobias Wood.
  *
  *  This Source Code Form is subject to the terms of the Mozilla Public
  *  License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,8 +9,8 @@
  *
  */
 
-#ifndef QI_ELLIPSE_H
-#define QI_ELLIPSE_H
+#ifndef QI_ELLIPSE_ALGO_H
+#define QI_ELLIPSE_ALGO_H
 
 #include <memory>
 #include <complex>
@@ -24,9 +24,13 @@
 #include "QI/Types.h"
 #include "QI/Util.h"
 #include "QI/Sequences/SteadyStateSequence.h"
-#include "QI/Ellipse/EllipseFits.h"
+#include "Filters/ApplyAlgorithmFilter.h"
+#include "QI/Ellipse/Direct.h"
+#include "QI/Ellipse/Hyper.h"
 
 namespace QI {
+
+enum class EllipseMethods { Hyper, Direct };
 
 class EllipseAlgo : public QI::ApplyVectorXFVectorF::Algorithm {
 public:
@@ -39,12 +43,7 @@ protected:
     TOutput m_zero;
 public:
 
-    EllipseAlgo(EllipseMethods m, std::shared_ptr<QI::SSFPEcho> &seq, bool debug) :
-        m_method(m), m_sequence(seq), m_debug(debug)
-    {
-        m_zero = TOutput(m_sequence->flip().rows());
-        m_zero.Fill(0.);
-    }
+    EllipseAlgo(EllipseMethods m, std::shared_ptr<QI::SSFPEcho> &seq, bool debug);
 
     size_t numInputs() const override { return 1; }
     size_t numConsts() const override { return 0; }
@@ -62,30 +61,9 @@ public:
     }
     virtual bool apply(const std::vector<TInput> &inputs, const std::vector<TConst> &consts,
                        std::vector<TOutput> &outputs, TConst &residual,
-                       TInput &resids, TIters &its) const override
-    {
-        const int np = m_sequence->phase_incs().rows();
-        for (int f = 0; f < m_sequence->flip().rows(); f++) {
-            Eigen::ArrayXcf data(np);
-            for (int i = 0; i < np; i++) {
-                data[i] = inputs[0][f*np + i];
-            }
-            if (m_debug) {
-                std::cout << "Flip: " << m_sequence->flip()[f] << " Data: " << data.transpose() << std::endl;
-            }
-            Array5d tempOutputs;
-            switch (m_method) {
-                case EllipseMethods::Hyper: tempOutputs = HyperEllipse(data, m_sequence->TR(), m_sequence->phase_incs()); break;
-                case EllipseMethods::Direct: tempOutputs = DirectEllipse(data, m_sequence->TR(), m_sequence->phase_incs(), m_debug); break;
-            }
-            for (int o = 0; o < NumOutputs; o++) {
-                outputs[o][f] = tempOutputs[o];
-            }
-        }
-        return true;
-    }
+                       TInput &resids, TIters &its) const override;
 };
 
 } // End namespace QI
 
-#endif // QI_ELLIPSE_H
+#endif // QI_ELLIPSE_ALGO_H
