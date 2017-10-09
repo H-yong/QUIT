@@ -25,43 +25,32 @@
 #include "QI/Util.h"
 #include "QI/Sequences/SteadyStateSequence.h"
 #include "Filters/ApplyAlgorithmFilter.h"
-#include "QI/Ellipse/Direct.h"
-#include "QI/Ellipse/Hyper.h"
 
 namespace QI {
 
-enum class EllipseMethods { Hyper, Direct };
-
 class EllipseAlgo : public QI::ApplyVectorXFVectorF::Algorithm {
-public:
-    const static size_t NumOutputs = 5;
-    typedef const Eigen::Map<const Eigen::ArrayXcf, 0, Eigen::InnerStride<>> map_t;
 protected:
-    EllipseMethods m_method;
     bool m_debug = false;
     std::shared_ptr<QI::SSFPEcho> m_sequence = nullptr;
     TOutput m_zero;
+    virtual Eigen::ArrayXd apply_internal(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi, const bool debug, float &residual) const = 0;
 public:
-
-    EllipseAlgo(EllipseMethods m, std::shared_ptr<QI::SSFPEcho> &seq, bool debug);
+    EllipseAlgo(std::shared_ptr<QI::SSFPEcho> &seq, bool debug);
 
     size_t numInputs() const override { return 1; }
     size_t numConsts() const override { return 0; }
-    size_t numOutputs() const override { return NumOutputs; }
     size_t dataSize() const override { return m_sequence->size(); }
     size_t outputSize(const int i) const override { return m_sequence->flip().rows(); }
     virtual std::vector<float> defaultConsts() const override {
-        std::vector<float> def(1, 1.0f); // B1
+        std::vector<float> def;
         return def;
     }
     virtual const TOutput &zero(const size_t i) const override { return m_zero; }
-    const std::vector<std::string> & names() const {
-        static std::vector<std::string> _names = {"G", "a", "b", "f0", "phi_rf"};
-        return _names;
-    }
     virtual bool apply(const std::vector<TInput> &inputs, const std::vector<TConst> &consts,
                        std::vector<TOutput> &outputs, TConst &residual,
                        TInput &resids, TIters &its) const override;
+    
+    virtual const std::vector<std::string> & names() const = 0;
 };
 
 } // End namespace QI

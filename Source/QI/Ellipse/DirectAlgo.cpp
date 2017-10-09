@@ -1,5 +1,5 @@
 /*
- *  Direct.cpp
+ *  DirectAlgo.cpp
  *
  *  Copyright (c) 2016, 2017 Tobias Wood.
  *
@@ -9,14 +9,14 @@
  *
  */
 
-#include "QI/Ellipse/Direct.h"
+#include "QI/Ellipse/DirectAlgo.h"
 #include "QI/Ellipse/EllipseHelpers.h"
 #include "QI/Fit.h"
 #include "ceres/ceres.h"
 
 namespace QI {
 
-struct EllipseCost {
+struct DirectCost {
 public:
     const Eigen::ArrayXcd &data;
     const double TR;
@@ -32,41 +32,27 @@ public:
         const T &b = p[0][2];
         const T &f0 = p[0][3];
         const T &psi0 = p[0][4];
-        // Convert the SSFP Ellipse parameters into a magnetization
-        const T theta0 = 2.0*M_PI*f0*TR;
-        const ArrayXT theta = theta0 - phi;
-        const T psi = theta0/2.0 + psi0;
-        const ArrayXT cos_th = cos(theta);
-        const ArrayXT sin_th = sin(theta);
-        const T cos_psi = cos(psi);
-        const T sin_psi = sin(psi);
-        const ArrayXT re_m = (cos_psi - a*cos_th*cos_psi + a*sin_th*sin_psi) * G / (1.0 - b*cos_th);
-        const ArrayXT im_m = (sin_psi - a*cos_th*sin_psi - a*sin_th*cos_psi) * G / (1.0 - b*cos_th);
+
+        ArrayXT m = EllipseToSignal(G, a, b, f0, psi0, TR, phi);
         Eigen::Map<ArrayXT> r(resids, data.size()*2);
-        r.head(data.size()) = re_m - data.real();
-        r.tail(data.size()) = im_m - data.imag();
+        r.head(data.size()) = m.head(data.size()) - data.real();
+        r.tail(data.size()) = m.tail(data.size()) - data.imag();
         if (debug) {
             std::cout << "*** COST ***\n"
-                << "G " << G << " a " << a << " b " << b << " f0 " << f0 << " psi0 " << psi0
-                << "\npsi " << psi << " \ntheta\n" << theta
-                << "\nre_m\n" << re_m
-                << "\nre(d)\n" << data.real()
-                << "\nim_m\n" << im_m
-                << "\nim(d)\n" << data.imag()
-                << "\nr\n" << r << std::endl;
+                << "G " << G << " a " << a << " b " << b << " f0 " << f0 << " psi0 " << psi0;
         }
         return true;
     }
 };
 
-Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eigen::ArrayXd &phi, const bool debug, float &residual) {
+Eigen::ArrayXd DirectAlgo::apply_internal(const Eigen::ArrayXcf &indata, const double TR, const Eigen::ArrayXd &phi, const bool debug, float &residual) const {
     Eigen::ArrayXcd data = indata.cast<std::complex<double>>();
     const double scale = data.abs().maxCoeff();
     data /= scale;
 
     std::complex<double> c_mean = data.mean();
 
-    auto *cost = new ceres::DynamicAutoDiffCostFunction<EllipseCost>(new EllipseCost{data, TR, phi, debug});
+    auto *cost = new ceres::DynamicAutoDiffCostFunction<DirectCost>(new DirectCost{data, TR, phi, debug});
     cost->AddParameterBlock(5);
     cost->SetNumResiduals(data.size()*2);
 
@@ -112,6 +98,9 @@ Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &indata, const do
     }
     residual = summary.final_cost;
     p[0] *= scale;
+    if (debug) {
+        std::cout << "Finished Direct Algo, p: " << p.transpose() << std::endl;
+    }
     return p;
 };
 

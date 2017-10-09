@@ -16,8 +16,8 @@
 
 namespace QI {
 
-EllipseAlgo::EllipseAlgo(EllipseMethods m, std::shared_ptr<QI::SSFPEcho> &seq, bool debug) :
-    m_method(m), m_sequence(seq), m_debug(debug)
+EllipseAlgo::EllipseAlgo(std::shared_ptr<QI::SSFPEcho> &seq, bool debug) :
+    m_sequence(seq), m_debug(debug)
 {
     m_zero = TOutput(m_sequence->flip().rows());
     m_zero.Fill(0.);
@@ -37,12 +37,11 @@ bool EllipseAlgo::apply(const std::vector<TInput> &inputs,
         if (m_debug) {
             std::cout << "Flip: " << m_sequence->flip()[f] << " Data: " << data.transpose() << std::endl;
         }
-        Eigen::Array<double, 5, 1> tempOutputs;
-        switch (m_method) {
-        case EllipseMethods::Hyper: tempOutputs = HyperEllipse(data, m_sequence->TR(), m_sequence->phase_incs()); break;
-        case EllipseMethods::Direct: tempOutputs = DirectEllipse(data, m_sequence->TR(), m_sequence->phase_incs(), m_debug, residual); break;
+        Eigen::ArrayXd tempOutputs = this->apply_internal(data, m_sequence->TR(), m_sequence->phase_incs(), m_debug, residual);
+        if (m_debug) {
+            std::cout << "Outputs: " << tempOutputs.transpose() << std::endl;
         }
-        for (int o = 0; o < NumOutputs; o++) {
+        for (int o = 0; o < this->numOutputs(); o++) {
             outputs[o][f] = tempOutputs[o];
         }
     }

@@ -1,5 +1,5 @@
 /*
- *  Hyper.cpp
+ *  HyperAlgo.cpp
  *
  *  Copyright (c) 2017 Tobias Wood.
  *
@@ -9,7 +9,7 @@
  *
  */
 
-#include "QI/Ellipse/Hyper.h"
+#include "QI/Ellipse/HyperAlgo.h"
 #include "QI/Ellipse/EllipseHelpers.h"
 #include "QI/Fit.h"
 #include "ceres/ceres.h"
@@ -55,7 +55,7 @@ Eigen::MatrixXd HyperC(const Eigen::ArrayXd &x, const Eigen::ArrayXd &y) {
     return C;
 }
 
-Eigen::Array<double, 5, 1> HyperEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi) {
+Eigen::ArrayXd HyperAlgo::apply_internal(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi, const bool debug, float &residual) const {
     Eigen::ArrayXcd data = input.cast<std::complex<double>>();
     const double scale = data.abs().maxCoeff();
     Eigen::ArrayXd x = data.real() / scale;
