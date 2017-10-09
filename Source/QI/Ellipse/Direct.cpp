@@ -59,7 +59,7 @@ public:
     }
 };
 
-Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eigen::ArrayXd &phi, const bool debug) {
+Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &indata, const double TR, const Eigen::ArrayXd &phi, const bool debug, float &residual) {
     Eigen::ArrayXcd data = indata.cast<std::complex<double>>();
     const double scale = data.abs().maxCoeff();
     data /= scale;
@@ -110,6 +110,7 @@ Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &indata, const do
     if (debug || !summary.IsSolutionUsable()) {
         std::cout << summary.FullReport() << std::endl;
     }
+    residual = summary.final_cost;
     p[0] *= scale;
     return p;
 };

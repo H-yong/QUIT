@@ -16,7 +16,7 @@
 
 namespace QI {
 
-Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi, const bool debug);
+Eigen::Array<double, 5, 1> DirectEllipse(const Eigen::ArrayXcf &input, const double TR, const Eigen::ArrayXd &phi, const bool debug, float &residual);
 
 } // End namespace QI
 

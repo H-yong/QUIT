@@ -181,9 +181,7 @@ public:
         outputs[2] = p[2];
         outputs[3] = p[3];
         outputs[4] = T2f;
-
-        residual = summary.final_cost * scale;
-
+        residual = summary.final_cost;
         if (resids.Size() > 0) {
             assert(resids.Size() == data.size());
             std::vector<double> r_temp(G.size() + a.size() + b.size());
@@ -198,7 +196,6 @@ public:
                 resids[i + G.size() + a.size()] = r_temp[i + G.size()];
             }
         }
-
         return true;
     }
 };

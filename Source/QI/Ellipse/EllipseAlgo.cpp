@@ -40,7 +40,7 @@ bool EllipseAlgo::apply(const std::vector<TInput> &inputs,
         Eigen::Array<double, 5, 1> tempOutputs;
         switch (m_method) {
         case EllipseMethods::Hyper: tempOutputs = HyperEllipse(data, m_sequence->TR(), m_sequence->phase_incs()); break;
-        case EllipseMethods::Direct: tempOutputs = DirectEllipse(data, m_sequence->TR(), m_sequence->phase_incs(), m_debug); break;
+        case EllipseMethods::Direct: tempOutputs = DirectEllipse(data, m_sequence->TR(), m_sequence->phase_incs(), m_debug, residual); break;
         }
         for (int o = 0; o < NumOutputs; o++) {
             outputs[o][f] = tempOutputs[o];
